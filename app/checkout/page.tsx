@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type SubmitEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { formatPrice } from "@/lib/catalog";
 
@@ -22,16 +22,20 @@ export default function CheckoutPage() {
   const subtotal = useMemo(() => cart.reduce((total, line) => total + line.product.price * line.quantity, 0), [cart]);
   const total = subtotal + (cart.length ? deliveryRates[delivery] : 0);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!cart.length) return;
 
     const formData = new FormData(event.currentTarget);
-    const name = String(formData.get("name") ?? "").trim();
-    const phone = String(formData.get("phone") ?? "").trim();
-    const email = String(formData.get("email") ?? "").trim();
-    const address = String(formData.get("address") ?? "").trim();
+    const getFormValue = (field: string) => {
+      const value = formData.get(field);
+      return typeof value === "string" ? value.trim() : "";
+    };
+    const name = getFormValue("name");
+    const phone = getFormValue("phone");
+    const email = getFormValue("email");
+    const address = getFormValue("address");
     const deliveryLabel = delivery === "nairobi" ? "Nairobi delivery" : "Nationwide delivery";
 
     const orderLines = cart
@@ -52,11 +56,11 @@ export default function CheckoutPage() {
       <main className="checkout-page">
         <div className="checkout-success">
           <span className="success-mark">R</span>
-          <p className="eyebrow">Order request received</p>
-          <h1>We have your details.</h1>
+          <p className="eyebrow">Order email prepared</p>
+          <h1>Your request is ready.</h1>
           <p>
-            Your order request has been prepared for romibstraders@gmail.com. Please confirm in your email app,
-            and we will follow up with payment details and delivery confirmation.
+            Your order request has been prepared for romibstraders@gmail.com. Send it from your email app,
+            and ROMIBS will confirm availability, payment instructions, and delivery details.
           </p>
           <Link className="primary-button" href="/">
             Return to shop <span aria-hidden="true">&#8594;</span>
@@ -86,22 +90,22 @@ export default function CheckoutPage() {
               <legend>Contact</legend>
               <label>
                 <span>Full name</span>
-                <input required name="name" placeholder="Your name" />
+                <input autoComplete="name" required name="name" placeholder="Your name" />
               </label>
               <label>
                 <span>Phone number</span>
-                <input required name="phone" type="tel" placeholder="07XX XXX XXX" />
+                <input autoComplete="tel" inputMode="tel" required name="phone" type="tel" placeholder="07XX XXX XXX" />
               </label>
               <label>
                 <span>Email address</span>
-                <input required name="email" type="email" placeholder="you@example.com" />
+                <input autoComplete="email" required name="email" type="email" placeholder="you@example.com" />
               </label>
             </fieldset>
 
             <fieldset>
               <legend>Delivery</legend>
               <div className="delivery-options">
-                <label className={delivery === "nairobi" ? "delivery-option selected" : "delivery-option"}>
+                <label aria-label="Nairobi delivery" className={delivery === "nairobi" ? "delivery-option selected" : "delivery-option"}>
                   <input checked={delivery === "nairobi"} name="delivery" onChange={() => setDelivery("nairobi")} type="radio" />
                   <span>
                     <strong>Nairobi delivery</strong>
@@ -109,7 +113,7 @@ export default function CheckoutPage() {
                   </span>
                 </label>
 
-                <label className={delivery === "nationwide" ? "delivery-option selected" : "delivery-option"}>
+                <label aria-label="Nationwide delivery" className={delivery === "nationwide" ? "delivery-option selected" : "delivery-option"}>
                   <input checked={delivery === "nationwide"} name="delivery" onChange={() => setDelivery("nationwide")} type="radio" />
                   <span>
                     <strong>Nationwide delivery</strong>
@@ -120,16 +124,16 @@ export default function CheckoutPage() {
 
               <label>
                 <span>Delivery address</span>
-                <textarea required name="address" placeholder="Estate, building, street, town" rows={3} />
+                <textarea autoComplete="street-address" required name="address" placeholder="Estate, building, street, town" rows={3} />
               </label>
             </fieldset>
 
             <button className="primary-button checkout-submit" disabled={!cart.length} type="submit">
-              Request secure payment <span aria-hidden="true">&#8594;</span>
+              Prepare order email <span aria-hidden="true">&#8594;</span>
             </button>
 
             <p className="checkout-note">
-              Your order request will be sent to romibstraders@gmail.com so we can confirm availability and share the payment details.
+              This prepares an email request. No payment is taken here; ROMIBS will confirm availability and share payment instructions.
             </p>
           </form>
         </section>
