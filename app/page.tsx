@@ -11,9 +11,13 @@ type CartLine = {
 };
 
 const lowStockThreshold = 3;
+const ageFilters = ["All ages", "0 - 3 yrs", "4 - 6 yrs", "7 - 10 yrs"] as const;
+type AgeFilter = (typeof ageFilters)[number];
 
 export default function Home() {
   const [activeCategory, setActiveCategory] = useState<Category>("All items");
+  const [activeAge, setActiveAge] = useState<AgeFilter>("All ages");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<Variant | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -30,8 +34,14 @@ export default function Home() {
   }, [cart]);
 
   const visibleProducts = useMemo(
-    () => activeCategory === "All items" ? products : products.filter((product) => product.category === activeCategory),
-    [activeCategory],
+    () => products.filter((product) => {
+      const matchesCategory = activeCategory === "All items" || product.category === activeCategory;
+      const matchesAge = activeAge === "All ages" || product.variants.some((variant) => variant.label === activeAge);
+      const query = searchQuery.trim().toLowerCase();
+      const matchesSearch = !query || [product.name, product.description, product.category].some((value) => value.toLowerCase().includes(query));
+      return matchesCategory && matchesAge && matchesSearch;
+    }),
+    [activeAge, activeCategory, searchQuery],
   );
 
   const cartCount = cart.reduce((total, line) => total + line.quantity, 0);
@@ -153,12 +163,23 @@ export default function Home() {
           <div><p className="eyebrow">The current edit</p><h2>Made for growing days</h2></div>
           <p className="section-note">Small batches, soft materials,<br />and room to move.</p>
         </div>
-        <div className="filter-row" role="tablist" aria-label="Filter products by category">
-          {categories.map((category) => <button key={category} className={activeCategory === category ? "filter active" : "filter"} type="button" onClick={() => setActiveCategory(category)}>{category}</button>)}
+        <div className="shop-controls">
+          <label className="search-field">
+            <span>Search the edit</span>
+            <input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Try tee or set" />
+          </label>
+          <div className="filter-groups">
+            <div className="filter-row" role="tablist" aria-label="Filter products by category">
+              {categories.map((category) => <button key={category} className={activeCategory === category ? "filter active" : "filter"} type="button" onClick={() => setActiveCategory(category)}>{category}</button>)}
+            </div>
+            <div className="filter-row age-filter-row" role="tablist" aria-label="Filter products by age">
+              {ageFilters.map((age) => <button key={age} className={activeAge === age ? "filter active" : "filter"} type="button" onClick={() => setActiveAge(age)}>{age}</button>)}
+            </div>
+          </div>
         </div>
-        <div className="product-grid">
+        {visibleProducts.length ? <div className="product-grid">
           {visibleProducts.map((product, index) => <ProductCard key={product.id} product={product} index={index} onOpen={openProduct} />)}
-        </div>
+        </div> : <div className="empty-products"><strong>No pieces found.</strong><span>Try another search or clear one of the filters.</span><button className="text-button" type="button" onClick={() => { setActiveCategory("All items"); setActiveAge("All ages"); setSearchQuery(""); }}>Clear filters <span aria-hidden="true">&#8594;</span></button></div>}
       </section>
 
       <section className="story-section" id="story">
@@ -202,9 +223,9 @@ function ProductCard({ product, index, onOpen }: Readonly<{ product: Product; in
 }
 
 function ProductModal({ product, selectedVariant, onSelectVariant, onClose, onAdd }: Readonly<{ product: Product; selectedVariant: Variant | null; onSelectVariant: (variant: Variant) => void; onClose: () => void; onAdd: (product: Product, variant: Variant) => void }>) {
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><dialog className="product-modal" open aria-modal="true" aria-labelledby="quick-view-title"><button className="close-button" type="button" onClick={onClose} aria-label="Close product view">x</button><div className="modal-image" style={{ backgroundImage: `url(${product.image})` }} aria-label={product.imageAlt} /><div className="modal-details"><p className="product-category">{product.category}</p><h2 id="quick-view-title">{product.name}</h2><strong className="modal-price">{formatPrice(product.price)}</strong><p>{product.description}</p><div className="variant-field"><span>Choose age range</span><div className="variant-options">{product.variants.map((variant) => <button key={variant.id} className={selectedVariant?.id === variant.id ? "variant selected" : "variant"} disabled={variant.stock === 0} type="button" onClick={() => onSelectVariant(variant)}>{variant.label}<small>{variant.stock === 0 ? "Out" : `${variant.stock} left`}</small></button>)}</div></div><button className="primary-button full-width" disabled={!selectedVariant || selectedVariant.stock === 0} type="button" onClick={() => selectedVariant && onAdd(product, selectedVariant)}>Add to bag <span aria-hidden="true">&#8594;</span></button><p className="modal-note">Free Nairobi delivery over KSh 8,000</p></div></dialog></div>;
+  return <div className="modal-backdrop"><dialog className="product-modal" open aria-modal="true" aria-labelledby="quick-view-title"><button className="close-button" type="button" onClick={onClose} aria-label="Close product view">x</button><div className="modal-image" style={{ backgroundImage: `url(${product.image})` }} aria-label={product.imageAlt} /><div className="modal-details"><p className="product-category">{product.category}</p><h2 id="quick-view-title">{product.name}</h2><strong className="modal-price">{formatPrice(product.price)}</strong><p>{product.description}</p><div className="variant-field"><span>Choose age range</span><div className="variant-options">{product.variants.map((variant) => <button key={variant.id} className={selectedVariant?.id === variant.id ? "variant selected" : "variant"} disabled={variant.stock === 0} type="button" onClick={() => onSelectVariant(variant)}>{variant.label}<small>{variant.stock === 0 ? "Out" : `${variant.stock} left`}</small></button>)}</div></div><button className="primary-button full-width" disabled={!selectedVariant || selectedVariant.stock === 0} type="button" onClick={() => selectedVariant && onAdd(product, selectedVariant)}>Add to bag <span aria-hidden="true">&#8594;</span></button><p className="modal-note">Free Nairobi delivery over KSh 8,000</p></div></dialog></div>;
 }
 
 function CartDrawer({ cart, subtotal, onClose, onUpdate }: Readonly<{ cart: CartLine[]; subtotal: number; onClose: () => void; onUpdate: (variantId: string, quantity: number) => void }>) {
-  return <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><aside className="cart-drawer" aria-label="Shopping bag"><div className="drawer-header"><div><p className="eyebrow">Your selection</p><h2>Shopping bag</h2></div><button className="close-button" type="button" onClick={onClose} aria-label="Close shopping bag">x</button></div>{cart.length === 0 ? <div className="empty-bag"><span className="empty-icon">+</span><p>Your bag is waiting.</p><button className="text-button" type="button" onClick={onClose}>Continue browsing <span>&#8594;</span></button></div> : <><div className="cart-lines">{cart.map((line) => <div className="cart-line" key={line.variant.id}><div className="cart-thumb" style={{ backgroundImage: `url(${line.product.image})` }} aria-label={line.product.imageAlt} /><div className="cart-line-detail"><strong>{line.product.name}</strong><span>{line.variant.label} / {line.variant.color}</span><div className="quantity"><button type="button" onClick={() => onUpdate(line.variant.id, line.quantity - 1)} aria-label={`Decrease ${line.product.name}`}>-</button><span>{line.quantity}</span><button type="button" onClick={() => onUpdate(line.variant.id, line.quantity + 1)} aria-label={`Increase ${line.product.name}`}>+</button></div></div><strong>{formatPrice(line.product.price * line.quantity)}</strong></div>)}</div><div className="cart-summary"><div><span>Subtotal</span><strong>{formatPrice(subtotal)}</strong></div><p>Delivery calculated at checkout.</p><Link className="primary-button full-width" href="/checkout" onClick={onClose}>Checkout <span aria-hidden="true">&#8594;</span></Link></div></>}</aside></div>;
+  return <div className="drawer-backdrop"><aside className="cart-drawer" aria-label="Shopping bag"><div className="drawer-header"><div><p className="eyebrow">Your selection</p><h2>Shopping bag</h2></div><button className="close-button" type="button" onClick={onClose} aria-label="Close shopping bag">x</button></div>{cart.length === 0 ? <div className="empty-bag"><span className="empty-icon">+</span><p>Your bag is waiting.</p><button className="text-button" type="button" onClick={onClose}>Continue browsing <span>&#8594;</span></button></div> : <><div className="cart-lines">{cart.map((line) => <div className="cart-line" key={line.variant.id}><div className="cart-thumb" style={{ backgroundImage: `url(${line.product.image})` }} aria-label={line.product.imageAlt} /><div className="cart-line-detail"><strong>{line.product.name}</strong><span>{line.variant.label} / {line.variant.color}</span><div className="quantity"><button type="button" onClick={() => onUpdate(line.variant.id, line.quantity - 1)} aria-label={`Decrease ${line.product.name}`}>-</button><span>{line.quantity}</span><button type="button" onClick={() => onUpdate(line.variant.id, line.quantity + 1)} aria-label={`Increase ${line.product.name}`}>+</button></div></div><strong>{formatPrice(line.product.price * line.quantity)}</strong></div>)}</div><div className="cart-summary"><div><span>Subtotal</span><strong>{formatPrice(subtotal)}</strong></div><p>Delivery calculated at checkout.</p><Link className="primary-button full-width" href="/checkout" onClick={onClose}>Checkout <span aria-hidden="true">&#8594;</span></Link></div></>}</aside></div>;
 }
