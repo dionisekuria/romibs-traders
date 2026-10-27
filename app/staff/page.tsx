@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { categories, formatPrice, type Category, type Product } from "@/lib/catalog";
@@ -152,7 +153,7 @@ export default function StaffPage() {
           <Link className="secondary-button" href="/">Return to shop</Link>
         </div>
       </header>
-      <div className={source === "supabase" ? "staff-status connected" : "staff-status"}>{source === "supabase" ? "Connected to Supabase" : source === "demo" ? "Demo catalog: configure Supabase to save changes" : "Loading catalog"}</div>
+      <div className={source === "supabase" ? "staff-status connected" : "staff-status"}>{source === "supabase" ? "Connected to Supabase" : source === "demo" ? "Demo catalog: configure Supabase to enable live inventory edits." : "Catalog status"}</div>
       {message && <p className="staff-message">{message}</p>}
       <section className="staff-section">
         <div className="staff-section-heading">
@@ -168,16 +169,16 @@ export default function StaffPage() {
         <form className="staff-form" onSubmit={addProduct}>
           <label>Product ID<input required value={draft.id} onChange={(event) => setDraft({ ...draft, id: event.target.value })} placeholder="soft-cotton-set" /></label>
           <label>Name<input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Soft cotton set" /></label>
-          <label>Category<select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value as ProductDraft["category"] })}>{categories.filter((category) => category !== "All items").map((category) => <option key={category}>{category}</option>)}</select></label>
+          <label>Category<select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value as ProductDraft["category"] })}>{categories.filter((category) => category !== "All items").map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
           <label>Price in KSh<input required min="0" type="number" value={draft.price} onChange={(event) => setDraft({ ...draft, price: Number(event.target.value) })} /></label>
           <label>Description<textarea required value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
           <label>Image URL<input required type="url" value={draft.image} onChange={(event) => setDraft({ ...draft, image: event.target.value })} /></label>
           <label>Image alt text<input required value={draft.imageAlt} onChange={(event) => setDraft({ ...draft, imageAlt: event.target.value })} /></label>
           <div className="staff-variant">
             <strong>First variant</strong>
-            <label>Age range<input required value={draft.variants[0].label} onChange={(event) => setDraft({ ...draft, variants: [{ ...draft.variants[0], label: event.target.value }] })} placeholder="2 - 3 yrs" /></label>
+            <label>Age range<input required value={draft.variants[0].label} onChange={(event) => setDraft({ ...draft, variants: [{ ...draft.variants[0], label: event.target.value }] })} placeholder="0-12 months" /></label>
             <label>Color<input required value={draft.variants[0].color} onChange={(event) => setDraft({ ...draft, variants: [{ ...draft.variants[0], color: event.target.value }] })} /></label>
-            <label>Stock<input required min="0" type="number" value={draft.variants[0].stock} onChange={(event) => setDraft({ ...draft, variants: [{ ...draft.variants[0], stock: Number(event.target.value), id: `${draft.id}-variant` }] })} /></label>
+            <label>Stock<input required min="0" type="number" value={draft.variants[0].stock} onChange={(event) => setDraft({ ...draft, variants: [{ ...draft.variants[0], stock: Number(event.target.value) }] })} /></label>
           </div>
           <button className="primary-button" disabled={source !== "supabase"} type="submit">Add product <span aria-hidden="true">&#8594;</span></button>
           {source !== "supabase" && <small>Connect Supabase before saving inventory.</small>}
@@ -202,9 +203,9 @@ export default function StaffPage() {
         <h2>{authMode === "sign-in" ? "Sign in" : "Create staff account"}</h2>
         <form className="staff-auth-form" onSubmit={handleAuthSubmit}>
           <label>Email<input type="email" required value={credentials.email} onChange={(event) => setCredentials({ ...credentials, email: event.target.value })} placeholder="manager@romibs.com" /></label>
-          <label>Password<input type="password" required minLength={6} value={credentials.password} onChange={(event) => setCredentials({ ...credentials, password: event.target.value })} placeholder="••••••••" /></label>
+          <label>Password<input type="password" required minLength={6} value={credentials.password} onChange={(event) => setCredentials({ ...credentials, password: event.target.value })} placeholder="••••••" /></label>
           <button className="primary-button" type="submit">{authMode === "sign-in" ? "Continue" : "Create account"}</button>
-          <button className="text-button" type="button" onClick={() => setAuthMode((currentMode) => currentMode === "sign-in" ? "sign-up" : "sign-in")}> {authMode === "sign-in" ? "Need an account?" : "Already have an account?"} </button>
+          <button className="text-button" type="button" onClick={() => setAuthMode((currentMode) => currentMode === "sign-in" ? "sign-up" : "sign-in")}>{authMode === "sign-in" ? "Need an account? Create one" : "Already have an account? Sign in"}</button>
         </form>
         {authMessage && <p className="staff-message">{authMessage}</p>}
       </section>
@@ -212,10 +213,26 @@ export default function StaffPage() {
   );
 
   if (authLoading) {
-    return <main className="staff-page"><header className="staff-header"><div><p className="eyebrow">ROMIBS Traders</p><h1>Inventory desk</h1></div></header><p className="staff-message">Loading staff access…</p></main>;
+    return <main className="staff-page"><header className="staff-header"><div><p className="eyebrow">ROMIBS Traders</p><h1>Inventory desk</h1></div></header><p className="staff-message">Loading staff access...</p></main>;
   }
 
-  return <main className="staff-page">{!browserSupabase ? <><header className="staff-header"><div><p className="eyebrow">ROMIBS Traders</p><h1>Inventory desk</h1></div><Link className="secondary-button" href="/">Return to shop</Link></header><p className="staff-message">This dashboard requires Supabase auth. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local to enable sign-in.</p></> : session ? renderInventory() : renderAuth()}</main>;
+  return <main className="staff-page">{!browserSupabase ? <><header className="staff-header"><div><p className="eyebrow">ROMIBS Traders</p><h1>Inventory desk</h1></div><Link className="secondary-button" href="/">Return to shop</Link></header><section className="staff-auth-card"><p className="eyebrow">Staff access</p><h2>Supabase not configured</h2><p className="staff-message">Configure Supabase in .env.local to enable staff sign-in.</p></section></> : session ? renderInventory() : renderAuth()}</main>;
 }
 
-function InventoryRow({ product, onSave }: Readonly<{ product: Product; onSave: (product: Product) => Promise<void> }>) { const [draft, setDraft] = useState(product); return <form className="inventory-row" onSubmit={(event) => { event.preventDefault(); void onSave(draft); }}><div><strong>{product.name}</strong><small>{product.category} / {draft.variants.reduce((total, variant) => total + variant.stock, 0)} in stock</small></div><label>Price<input min="0" type="number" value={draft.price} onChange={(event) => setDraft({ ...draft, price: Number(event.target.value) })} /></label>{draft.variants.map((variant, index) => <label key={variant.id}>{variant.label}<input min="0" type="number" value={variant.stock} onChange={(event) => setDraft({ ...draft, variants: draft.variants.map((item, itemIndex) => itemIndex === index ? { ...item, stock: Number(event.target.value) } : item) })} /></label>)}<button className="secondary-button" type="submit">Save</button><span className="inventory-price">{formatPrice(draft.price)}</span></form>; }
+function InventoryRow({ product, onSave }: Readonly<{ product: Product; onSave: (product: Product) => Promise<void> }>) {
+  const [draft, setDraft] = useState(product);
+
+  return <form className="inventory-row" onSubmit={async (event) => { event.preventDefault(); await onSave(draft); }}>
+    <div className="inventory-row-main">
+      <div>
+        <strong>{product.name}</strong>
+        <small>{product.category}</small>
+      </div>
+      <div className="inventory-row-values">
+        <label>Price<input type="number" min="0" value={draft.price} onChange={(event) => setDraft({ ...draft, price: Number(event.target.value) })} /></label>
+        <label>Stock<input type="number" min="0" value={draft.variants[0]?.stock ?? 0} onChange={(event) => setDraft({ ...draft, variants: [{ ...draft.variants[0], stock: Number(event.target.value) }] })} /></label>
+      </div>
+    </div>
+    <button className="secondary-button" type="submit">Save</button>
+  </form>;
+}
