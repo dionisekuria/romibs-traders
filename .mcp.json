@@ -1,0 +1,39 @@
+{
+	"mcpServers": {
+		"com.microsoft/azure": {
+			"type": "local",
+			"command": "dnx",
+			"args": [
+				"Azure.Mcp@3.0.0-beta.41",
+				"--yes",
+				"--",
+				"server",
+				"start"
+			],
+			"tools": [
+				"*"
+			]
+		},
+		"com.microsoft/microsoft-fabric": {
+			"type": "local",
+			"command": "dnx",
+			"args": [
+				"Microsoft.Fabric.Mcp@1.4.0",
+				"--yes",
+				"--",
+				"server",
+				"start"
+			],
+			"tools": [
+				"*"
+			]
+		},
+		"microsoftdocs/mcp": {
+			"type": "http",
+			"url": "https://learn.microsoft.com/api/mcp",
+			"tools": [
+				"*"
+			]
+		}
+	}
+}

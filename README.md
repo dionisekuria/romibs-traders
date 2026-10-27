@@ -13,9 +13,9 @@ Open `http://localhost:3000`.
 
 The launch tracker is maintained in [Monday.com](https://dionisekurias-team-company.monday.com/boards/5103820000) with priorities for each task.
 
-The catalog now supports Supabase. Copy `.env.example` to `.env.local`, fill in `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`, then run the SQL in `supabase/schema.sql` from the Supabase SQL Editor. Open `/staff` to add products and update prices or variant stock. Without Supabase credentials, the storefront uses the demo catalog and the staff page is read-only.
+The catalog now supports Supabase. Copy `.env.example` to `.env.local`, fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`, then run the SQL in `supabase/schema.sql` from the Supabase SQL Editor. Open `/staff` to sign in, add products, and update prices or variant stock. Without Supabase credentials, the storefront uses the demo catalog and the staff page stays private.
 
-Never expose or commit `SUPABASE_SERVICE_ROLE_KEY`. The staff API currently assumes that `/staff` is used privately; add Supabase Auth before exposing the dashboard publicly.
+Never expose or commit `SUPABASE_SERVICE_ROLE_KEY`. The staff dashboard is protected with Supabase Auth; only signed-in users can update the catalog through the API.
 
 ## Product direction
 
