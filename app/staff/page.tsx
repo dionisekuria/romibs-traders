@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
+import type { Session } from "@supabase/supabase-js";
 import { categories, formatPrice, type Category, type Product } from "@/lib/catalog";
 import { browserSupabase } from "@/lib/supabase";
 
@@ -13,7 +14,7 @@ export default function StaffPage() {
   const [source, setSource] = useState("loading");
   const [draft, setDraft] = useState<ProductDraft>(emptyDraft);
   const [message, setMessage] = useState("");
-  const [session, setSession] = useState<any | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authMode, setAuthMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [credentials, setCredentials] = useState({ email: "", password: "" });
