@@ -3,11 +3,11 @@
 import { FormEvent, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import Link from "next/link";
-import type { Session } from "@supabase/supabase-js";
-import { categories, formatPrice, type Category, type Product } from "@/lib/catalog";
+import { categories, type Category, type Product } from "@/lib/catalog";
 import { browserSupabase } from "@/lib/supabase";
 
 type ProductDraft = { id: string; name: string; category: Exclude<Category, "All items">; price: number; description: string; image: string; imageAlt: string; variants: Product["variants"] };
+type StaffAccess = { status: "checking" | "allowed" | "denied" | "error"; message?: string };
 const emptyDraft: ProductDraft = { id: "", name: "", category: "Everyday wear", price: 0, description: "", image: "", imageAlt: "", variants: [{ id: "", label: "", color: "", stock: 0 }] };
 
 export default function StaffPage() {
@@ -17,7 +17,7 @@ export default function StaffPage() {
   const [message, setMessage] = useState("");
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [authMode, setAuthMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [staffAccess, setStaffAccess] = useState<StaffAccess>({ status: "checking" });
   const [credentials, setCredentials] = useState({ email: "", password: "" });
   const [authMessage, setAuthMessage] = useState("");
 
@@ -42,6 +42,36 @@ export default function StaffPage() {
     return () => subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (!session) {
+      setStaffAccess({ status: "denied" });
+      return;
+    }
+
+    let cancelled = false;
+    setStaffAccess({ status: "checking" });
+
+    const checkStaffAccess = async () => {
+      try {
+        const response = await fetch("/api/staff/me", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        const data = await response.json() as { error?: string };
+        if (cancelled) return;
+        if (!response.ok) {
+          setStaffAccess({ status: "denied", message: data.error ?? "You do not have staff access." });
+          return;
+        }
+        setStaffAccess({ status: "allowed" });
+      } catch {
+        if (!cancelled) setStaffAccess({ status: "error", message: "Could not verify staff access. Please try again." });
+      }
+    };
+
+    void checkStaffAccess();
+    return () => { cancelled = true; };
+  }, [session]);
+
   const loadProducts = async () => {
     const response = await fetch("/api/catalog");
     const data = await response.json() as { products?: Product[]; source?: string; error?: string };
@@ -51,14 +81,14 @@ export default function StaffPage() {
   };
 
   useEffect(() => {
-    if (!session) {
+    if (!session || staffAccess.status !== "allowed") {
       setProducts([]);
       setSource("demo");
       return;
     }
 
     void loadProducts();
-  }, [session]);
+  }, [session, staffAccess.status]);
 
   const fetchWithSession = async (input: RequestInfo | URL, init: RequestInit = {}) => {
     if (!browserSupabase) {
@@ -119,15 +149,11 @@ export default function StaffPage() {
     }
 
     try {
-      const request = authMode === "sign-in"
-        ? browserSupabase.auth.signInWithPassword({ email: credentials.email, password: credentials.password })
-        : browserSupabase.auth.signUp({ email: credentials.email, password: credentials.password });
-
-      const { error } = await request;
+      const { error } = await browserSupabase.auth.signInWithPassword({ email: credentials.email, password: credentials.password });
       if (error) throw error;
 
-      setAuthMessage(authMode === "sign-in" ? "Signed in successfully." : "Check your email to confirm sign up.");
-      if (authMode === "sign-in") setCredentials({ email: "", password: "" });
+      setAuthMessage("Signed in successfully.");
+      setCredentials({ email: "", password: "" });
     } catch (error) {
       setAuthMessage(error instanceof Error ? error.message : "Authentication failed.");
     }
@@ -200,12 +226,12 @@ export default function StaffPage() {
 
       <section className="staff-auth-card">
         <p className="eyebrow">Staff access</p>
-        <h2>{authMode === "sign-in" ? "Sign in" : "Create staff account"}</h2>
+        <h2>Sign in</h2>
         <form className="staff-auth-form" onSubmit={handleAuthSubmit}>
           <label>Email<input type="email" required value={credentials.email} onChange={(event) => setCredentials({ ...credentials, email: event.target.value })} placeholder="manager@romibs.com" /></label>
           <label>Password<input type="password" required minLength={6} value={credentials.password} onChange={(event) => setCredentials({ ...credentials, password: event.target.value })} placeholder="••••••" /></label>
-          <button className="primary-button" type="submit">{authMode === "sign-in" ? "Continue" : "Create account"}</button>
-          <button className="text-button" type="button" onClick={() => setAuthMode((currentMode) => currentMode === "sign-in" ? "sign-up" : "sign-in")}>{authMode === "sign-in" ? "Need an account? Create one" : "Already have an account? Sign in"}</button>
+          <button className="primary-button" type="submit">Continue</button>
+          <p>Staff accounts are provisioned by an administrator.</p>
         </form>
         {authMessage && <p className="staff-message">{authMessage}</p>}
       </section>
@@ -216,7 +242,15 @@ export default function StaffPage() {
     return <main className="staff-page"><header className="staff-header"><div><p className="eyebrow">ROMIBS Traders</p><h1>Inventory desk</h1></div></header><p className="staff-message">Loading staff access...</p></main>;
   }
 
-  return <main className="staff-page">{!browserSupabase ? <><header className="staff-header"><div><p className="eyebrow">ROMIBS Traders</p><h1>Inventory desk</h1></div><Link className="secondary-button" href="/">Return to shop</Link></header><section className="staff-auth-card"><p className="eyebrow">Staff access</p><h2>Supabase not configured</h2><p className="staff-message">Configure Supabase in .env.local to enable staff sign-in.</p></section></> : session ? renderInventory() : renderAuth()}</main>;
+  if (!browserSupabase) {
+    return <main className="staff-page"><header className="staff-header"><div><p className="eyebrow">ROMIBS Traders</p><h1>Inventory desk</h1></div><Link className="secondary-button" href="/">Return to shop</Link></header><section className="staff-auth-card"><p className="eyebrow">Staff access</p><h2>Supabase not configured</h2><p className="staff-message">Configure Supabase in .env.local to enable staff sign-in.</p></section></main>;
+  }
+
+  if (!session) return <main className="staff-page">{renderAuth()}</main>;
+  if (staffAccess.status === "checking") return <main className="staff-page"><p className="staff-message">Verifying staff access...</p></main>;
+  if (staffAccess.status === "allowed") return <main className="staff-page">{renderInventory()}</main>;
+
+  return <main className="staff-page"><section className="staff-auth-card"><p className="eyebrow">Staff access</p><h2>{staffAccess.status === "error" ? "Unable to verify access" : "No staff access"}</h2><p className="staff-message">{staffAccess.message ?? "This account is not authorized to use the inventory desk."}</p><div className="staff-header-actions"><button className="secondary-button" type="button" onClick={handleSignOut}>Sign out</button><Link className="secondary-button" href="/">Return to shop</Link></div></section></main>;
 }
 
 function InventoryRow({ product, onSave }: Readonly<{ product: Product; onSave: (product: Product) => Promise<void> }>) {
@@ -228,10 +262,12 @@ function InventoryRow({ product, onSave }: Readonly<{ product: Product; onSave: 
         <strong>{product.name}</strong>
         <small>{product.category}</small>
       </div>
-      <div className="inventory-row-values">
-        <label>Price<input type="number" min="0" value={draft.price} onChange={(event) => setDraft({ ...draft, price: Number(event.target.value) })} /></label>
-        <label>Stock<input type="number" min="0" value={draft.variants[0]?.stock ?? 0} onChange={(event) => setDraft({ ...draft, variants: [{ ...draft.variants[0], stock: Number(event.target.value) }] })} /></label>
-      </div>
+    </div>
+    <div className="inventory-row-values">
+      <label>Price<input type="number" min="0" value={draft.price} onChange={(event) => setDraft({ ...draft, price: Number(event.target.value) })} /></label>
+      {draft.variants.map((variant, index) => (
+        <label key={variant.id}>Stock - {variant.label} / {variant.color}<input type="number" min="0" value={variant.stock} onChange={(event) => setDraft({ ...draft, variants: draft.variants.map((currentVariant, currentIndex) => currentIndex === index ? { ...currentVariant, stock: Number(event.target.value) } : currentVariant) })} /></label>
+      ))}
     </div>
     <button className="secondary-button" type="submit">Save</button>
   </form>;

@@ -13,9 +13,20 @@ Open `http://localhost:3000`.
 
 The launch tracker is maintained in [Monday.com](https://dionisekurias-team-company.monday.com/boards/5103820000) with priorities for each task.
 
-The catalog now supports Supabase. Copy `.env.example` to `.env.local`, fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`, then run the SQL in `supabase/schema.sql` from the Supabase SQL Editor. Open `/staff` to sign in, add products, and update prices or variant stock. Without Supabase credentials, the storefront uses the demo catalog and the staff page stays private.
+The catalog uses Supabase when configured. Copy `.env.example` to `.env.local`, fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`, then run `supabase/schema.sql` from the Supabase SQL Editor for a new database. For an existing database, apply `supabase/migrations/20261124193000_staff_catalog_security.sql`.
 
-Never expose or commit `SUPABASE_SERVICE_ROLE_KEY`. The staff dashboard is protected with Supabase Auth; only signed-in users can update the catalog through the API.
+### Provisioning staff
+
+Disable public user sign-ups in Supabase Auth settings. Create staff users from the Supabase Dashboard under **Authentication → Users**, then add their Auth user UUID to `staff_members` from the SQL Editor:
+
+```sql
+insert into public.staff_members (user_id, role, active)
+values ('<AUTH_USER_UUID>', 'admin', true);
+```
+
+Use the `staff` role for inventory operators and `admin` for administrators; both roles currently have the same catalog permissions. Deactivate access by setting `active = false`; remove a membership row to revoke it permanently. Staff can sign in at `/staff`, but the page and mutation API both require an active membership. Catalog creation and updates run through service-role-only database functions so product and variant changes are atomic.
+
+Never expose or commit `SUPABASE_SERVICE_ROLE_KEY`. Public catalog reads are available to `anon` and `authenticated` users; direct client writes to catalog and staff tables are denied by grants and RLS.
 
 ## Product direction
 

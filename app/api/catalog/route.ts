@@ -1,29 +1,26 @@
 import { NextResponse } from "next/server";
 import { products as demoProducts, type Product } from "@/lib/catalog";
-import { supabase, supabaseAuth } from "@/lib/supabase";
+import { createProductSchema, updateProductSchema } from "@/lib/catalog-validation";
+import { requireStaffUser } from "@/lib/staff-auth";
+import { supabase } from "@/lib/supabase";
 
 type ProductRow = Omit<Product, "imageAlt" | "variants"> & { image_alt: string; product_variants: Product["variants"] };
 
 const toProduct = (product: ProductRow): Product => ({ ...product, imageAlt: product.image_alt, variants: product.product_variants });
 
-const requireStaffUser = async (request: Request) => {
-  if (!supabase || !supabaseAuth) {
-    return { error: "Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY to your environment.", status: 503 };
+const writeErrorResponse = (error: { code?: string; message?: string }, operation: string) => {
+  if (error.code === "23505") {
+    return NextResponse.json({ error: "A product or variant with that ID already exists." }, { status: 409 });
+  }
+  if (error.code === "P0002") {
+    return NextResponse.json({ error: "Product not found." }, { status: 404 });
+  }
+  if (error.code === "22023") {
+    return NextResponse.json({ error: "A variant is invalid or does not belong to this product." }, { status: 400 });
   }
 
-  const authHeader = request.headers.get("authorization");
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : null;
-
-  if (!token) {
-    return { error: "Authentication is required to update the catalog.", status: 401 };
-  }
-
-  const { data: { user }, error } = await supabaseAuth.auth.getUser(token);
-  if (error || !user) {
-    return { error: "Your session has expired or is invalid.", status: 401 };
-  }
-
-  return { user };
+  console.error(`Catalog ${operation} failed.`, error);
+  return NextResponse.json({ error: "The catalog could not be saved." }, { status: 500 });
 };
 
 export async function GET() {
@@ -35,34 +32,75 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const authResult = await requireStaffUser(request);
-  if ("status" in authResult && authResult.status !== 200) {
+  if ("status" in authResult) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  if (!supabase) return NextResponse.json({ error: "Supabase is not configured. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to your environment." }, { status: 503 });
+  if (!supabase) return NextResponse.json({ error: "Catalog storage is not configured." }, { status: 503 });
 
-  const body = await request.json() as Product;
-  const { error: productError } = await supabase.from("products").insert({ id: body.id, name: body.name, category: body.category, price: body.price, description: body.description, image: body.image, image_alt: body.imageAlt, featured: body.featured ?? false });
-  if (productError) return NextResponse.json({ error: productError.message }, { status: 400 });
-  const { error: variantError } = await supabase.from("product_variants").insert(body.variants.map((variant) => ({ ...variant, product_id: body.id })));
-  if (variantError) { await supabase.from("products").delete().eq("id", body.id); return NextResponse.json({ error: variantError.message }, { status: 400 }); }
-  return NextResponse.json({ product: body }, { status: 201 });
+  let requestBody: unknown;
+  try {
+    requestBody = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
+  }
+
+  const parsed = createProductSchema.safeParse(requestBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Product details are invalid.", details: parsed.error.issues.map(({ path, message }) => ({ path, message })) }, { status: 400 });
+  }
+
+  const product = parsed.data;
+  const variants = product.variants.map((variant, index) => ({
+    ...variant,
+    id: variant.id || `${product.id}-variant-${index + 1}`,
+  }));
+  if (new Set(variants.map((variant) => variant.id)).size !== variants.length) {
+    return NextResponse.json({ error: "Variant IDs must be unique." }, { status: 400 });
+  }
+
+  const { error } = await supabase.rpc("create_product_with_variants", {
+    p_id: product.id,
+    p_name: product.name,
+    p_category: product.category,
+    p_price: product.price,
+    p_description: product.description,
+    p_image: product.image,
+    p_image_alt: product.imageAlt,
+    p_featured: product.featured ?? false,
+    p_variants: variants,
+  });
+  if (error) return writeErrorResponse(error, "creation");
+
+  return NextResponse.json({ product: { ...product, variants } }, { status: 201 });
 }
 
 export async function PATCH(request: Request) {
   const authResult = await requireStaffUser(request);
-  if ("status" in authResult && authResult.status !== 200) {
+  if ("status" in authResult) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
   }
 
-  if (!supabase) return NextResponse.json({ error: "Supabase is not configured. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to your environment." }, { status: 503 });
+  if (!supabase) return NextResponse.json({ error: "Catalog storage is not configured." }, { status: 503 });
 
-  const body = await request.json() as Pick<Product, "id" | "price" | "variants">;
-  const { error: productError } = await supabase.from("products").update({ price: body.price }).eq("id", body.id);
-  if (productError) return NextResponse.json({ error: productError.message }, { status: 400 });
-  for (const variant of body.variants) {
-    const { error } = await supabase.from("product_variants").update({ stock: variant.stock }).eq("id", variant.id).eq("product_id", body.id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  let requestBody: unknown;
+  try {
+    requestBody = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
   }
+
+  const parsed = updateProductSchema.safeParse(requestBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Product update is invalid.", details: parsed.error.issues.map(({ path, message }) => ({ path, message })) }, { status: 400 });
+  }
+
+  const { error } = await supabase.rpc("update_product_inventory", {
+    p_id: parsed.data.id,
+    p_price: parsed.data.price,
+    p_variants: parsed.data.variants,
+  });
+  if (error) return writeErrorResponse(error, "update");
+
   return NextResponse.json({ ok: true });
 }
