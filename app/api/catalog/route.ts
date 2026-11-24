@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { products as demoProducts, type Product } from "@/lib/catalog";
-import { createProductSchema, updateProductSchema } from "@/lib/catalog-validation";
+import { createProductSchema, deleteProductSchema, updateProductSchema } from "@/lib/catalog-validation";
 import { requireStaffUser } from "@/lib/staff-auth";
 import { supabase } from "@/lib/supabase";
 
@@ -95,12 +95,44 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Product update is invalid.", details: parsed.error.issues.map(({ path, message }) => ({ path, message })) }, { status: 400 });
   }
 
-  const { error } = await supabase.rpc("update_product_inventory", {
+  const product = parsed.data;
+  const { error } = await supabase.rpc("update_catalog_product", {
     p_id: parsed.data.id,
-    p_price: parsed.data.price,
-    p_variants: parsed.data.variants,
+    p_name: product.name,
+    p_category: product.category,
+    p_price: product.price,
+    p_description: product.description,
+    p_image: product.image,
+    p_image_alt: product.imageAlt,
+    p_featured: product.featured,
+    p_variants: product.variants,
   });
   if (error) return writeErrorResponse(error, "update");
 
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(request: Request) {
+  const authResult = await requireStaffUser(request);
+  if ("status" in authResult) {
+    return NextResponse.json({ error: authResult.error }, { status: authResult.status });
+  }
+
+  if (!supabase) return NextResponse.json({ error: "Catalog storage is not configured." }, { status: 503 });
+
+  let requestBody: unknown;
+  try {
+    requestBody = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
+  }
+
+  const parsed = deleteProductSchema.safeParse(requestBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Product ID is invalid.", details: parsed.error.issues.map(({ path, message }) => ({ path, message })) }, { status: 400 });
+  }
+
+  const { error } = await supabase.rpc("delete_catalog_product", { p_id: parsed.data.id });
+  if (error) return writeErrorResponse(error, "deletion");
   return NextResponse.json({ ok: true });
 }

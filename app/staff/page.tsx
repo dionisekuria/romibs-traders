@@ -8,6 +8,7 @@ import { browserSupabase } from "@/lib/supabase";
 
 type ProductDraft = { id: string; name: string; category: Exclude<Category, "All items">; price: number; description: string; image: string; imageAlt: string; variants: Product["variants"] };
 type StaffAccess = { status: "checking" | "allowed" | "denied" | "error"; message?: string };
+type StaffMember = { user_id: string; role: "admin" | "staff"; active: boolean; created_at?: string };
 const emptyDraft: ProductDraft = { id: "", name: "", category: "Everyday wear", price: 0, description: "", image: "", imageAlt: "", variants: [{ id: "", label: "", color: "", stock: 0 }] };
 
 export default function StaffPage() {
@@ -18,6 +19,11 @@ export default function StaffPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [staffAccess, setStaffAccess] = useState<StaffAccess>({ status: "checking" });
+  const [staffRole, setStaffRole] = useState<"admin" | "staff" | null>(null);
+  const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
+  const [memberEmail, setMemberEmail] = useState("");
+  const [memberRole, setMemberRole] = useState<"admin" | "staff">("staff");
+  const [syncRuns, setSyncRuns] = useState<Array<{ id: number; status: string; started_at: string; completed_at?: string; product_count: number; variant_count: number; error?: string }>>([]);
   const [credentials, setCredentials] = useState({ email: "", password: "" });
   const [authMessage, setAuthMessage] = useState("");
 
@@ -56,13 +62,14 @@ export default function StaffPage() {
         const response = await fetch("/api/staff/me", {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
-        const data = await response.json() as { error?: string };
+        const data = await response.json() as { error?: string; role?: "admin" | "staff" };
         if (cancelled) return;
         if (!response.ok) {
           setStaffAccess({ status: "denied", message: data.error ?? "You do not have staff access." });
           return;
         }
         setStaffAccess({ status: "allowed" });
+        setStaffRole(data.role ?? "staff");
       } catch {
         if (!cancelled) setStaffAccess({ status: "error", message: "Could not verify staff access. Please try again." });
       }
@@ -79,6 +86,28 @@ export default function StaffPage() {
     setSource(data.source ?? "demo");
     if (data.error) setMessage(data.error);
   };
+
+  const loadAdminTools = async () => {
+    if (staffRole !== "admin") return;
+    try {
+      const [membersResponse, syncResponse] = await Promise.all([
+        fetchWithSession("/api/staff/members"),
+        fetchWithSession("/api/staff/sheets/sync"),
+      ]);
+      const membersData = await membersResponse.json() as { members?: StaffMember[] };
+      const syncData = await syncResponse.json() as { sync_runs?: typeof syncRuns };
+      setStaffMembers(membersData.members ?? []);
+      setSyncRuns(syncData.sync_runs ?? []);
+    } catch {
+      setMessage("Could not load administrator tools.");
+    }
+  };
+
+  useEffect(() => {
+    if (staffAccess.status === "allowed" && staffRole === "admin") void loadAdminTools();
+  // loadAdminTools is intentionally refreshed only when staff access or role changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staffAccess.status, staffRole]);
 
   useEffect(() => {
     if (!session || staffAccess.status !== "allowed") {
@@ -111,13 +140,80 @@ export default function StaffPage() {
     try {
       const response = await fetchWithSession("/api/catalog", {
         method: "PATCH",
-        body: JSON.stringify({ id: product.id, price: product.price, variants: product.variants }),
+        body: JSON.stringify(product),
       });
       const data = await response.json() as { error?: string };
       setMessage(response.ok ? `${product.name} updated.` : data.error ?? "Update failed.");
       if (response.ok) await loadProducts();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Update failed.");
+    }
+  };
+
+  const deleteProduct = async (product: Product) => {
+    if (!window.confirm(`Delete ${product.name}? This cannot be undone.`)) return;
+    try {
+      const response = await fetchWithSession("/api/catalog", {
+        method: "DELETE",
+        body: JSON.stringify({ id: product.id }),
+      });
+      const data = await response.json() as { error?: string };
+      setMessage(response.ok ? `${product.name} deleted.` : data.error ?? "Delete failed.");
+      if (response.ok) await loadProducts();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Delete failed.");
+    }
+  };
+
+  const provisionMember = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      const response = await fetchWithSession("/api/staff/members", {
+        method: "POST",
+        body: JSON.stringify({ email: memberEmail, role: memberRole }),
+      });
+      const data = await response.json() as { error?: string };
+      setMessage(response.ok ? "Staff invitation created." : data.error ?? "Could not provision staff.");
+      if (response.ok) {
+        setMemberEmail("");
+        await loadAdminTools();
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not provision staff.");
+    }
+  };
+
+  const updateMember = async (member: StaffMember, updates: { role?: "admin" | "staff"; active?: boolean }) => {
+    const response = await fetchWithSession("/api/staff/members", {
+      method: "PATCH",
+      body: JSON.stringify({ user_id: member.user_id, ...updates }),
+    });
+    const data = await response.json() as { error?: string };
+    setMessage(response.ok ? "Staff member updated." : data.error ?? "Could not update staff member.");
+    if (response.ok) await loadAdminTools();
+  };
+
+  const removeMember = async (member: StaffMember) => {
+    if (!window.confirm(`Remove staff access for ${member.user_id}?`)) return;
+    const response = await fetchWithSession("/api/staff/members", {
+      method: "DELETE",
+      body: JSON.stringify({ user_id: member.user_id }),
+    });
+    const data = await response.json() as { error?: string };
+    setMessage(response.ok ? "Staff access removed." : data.error ?? "Could not remove staff member.");
+    if (response.ok) await loadAdminTools();
+  };
+
+  const syncSheets = async () => {
+    try {
+      const response = await fetchWithSession("/api/staff/sheets/sync", { method: "POST" });
+      const data = await response.json() as { error?: string };
+      setMessage(response.ok ? "Google Sheets catalog synchronized." : data.error ?? "Sheets sync failed.");
+      if (response.ok) {
+        await Promise.all([loadProducts(), loadAdminTools()]);
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Sheets sync failed.");
     }
   };
 
@@ -186,8 +282,37 @@ export default function StaffPage() {
           <div><p className="eyebrow">Existing products</p><h2>Prices and stock</h2></div>
           <span>{products.length} products</span>
         </div>
-        <div className="inventory-list">{products.map((product) => <InventoryRow key={product.id} product={product} onSave={updateProduct} />)}</div>
+        <div className="inventory-list">{products.map((product) => <InventoryRow key={product.id} product={product} onSave={updateProduct} onDelete={deleteProduct} />)}</div>
       </section>
+      {staffRole === "admin" && (
+        <>
+          <section className="staff-section">
+            <div className="staff-section-heading"><div><p className="eyebrow">Administration</p><h2>Staff members</h2></div></div>
+            <form className="staff-form" onSubmit={provisionMember}>
+              <label>Email<input type="email" required value={memberEmail} onChange={(event) => setMemberEmail(event.target.value)} /></label>
+              <label>Role<select value={memberRole} onChange={(event) => setMemberRole(event.target.value as "admin" | "staff")}><option value="staff">Staff</option><option value="admin">Admin</option></select></label>
+              <button className="primary-button" type="submit">Send staff invitation</button>
+            </form>
+            <div className="inventory-list">
+              {staffMembers.map((member) => (
+                <div className="inventory-row" key={member.user_id}>
+                  <div><strong>{member.user_id}</strong><small>{member.active ? "Active" : "Inactive"}</small></div>
+                  <select value={member.role} onChange={(event) => void updateMember(member, { role: event.target.value as "admin" | "staff" })}><option value="staff">Staff</option><option value="admin">Admin</option></select>
+                  <button className="secondary-button" type="button" onClick={() => void updateMember(member, { active: !member.active })}>{member.active ? "Deactivate" : "Activate"}</button>
+                  <button className="secondary-button" type="button" onClick={() => void removeMember(member)}>Remove</button>
+                </div>
+              ))}
+            </div>
+          </section>
+          <section className="staff-section">
+            <div className="staff-section-heading"><div><p className="eyebrow">Google Sheets</p><h2>Catalog synchronization</h2></div></div>
+            <button className="primary-button" type="button" onClick={() => void syncSheets}>Import catalog from Sheets</button>
+            <div className="inventory-list">
+              {syncRuns.map((run) => <div className="inventory-row" key={run.id}><div><strong>{run.status}</strong><small>{run.started_at}</small></div><small>{run.product_count} products / {run.variant_count} variants</small>{run.error && <small>{run.error}</small>}</div>)}
+            </div>
+          </section>
+        </>
+      )}
       <section className="staff-section">
         <div className="staff-section-heading">
           <div><p className="eyebrow">New item</p><h2>Add product</h2></div>
@@ -253,22 +378,37 @@ export default function StaffPage() {
   return <main className="staff-page"><section className="staff-auth-card"><p className="eyebrow">Staff access</p><h2>{staffAccess.status === "error" ? "Unable to verify access" : "No staff access"}</h2><p className="staff-message">{staffAccess.message ?? "This account is not authorized to use the inventory desk."}</p><div className="staff-header-actions"><button className="secondary-button" type="button" onClick={handleSignOut}>Sign out</button><Link className="secondary-button" href="/">Return to shop</Link></div></section></main>;
 }
 
-function InventoryRow({ product, onSave }: Readonly<{ product: Product; onSave: (product: Product) => Promise<void> }>) {
+function InventoryRow({ product, onSave, onDelete }: Readonly<{ product: Product; onSave: (product: Product) => Promise<void>; onDelete: (product: Product) => Promise<void> }>) {
   const [draft, setDraft] = useState(product);
 
   return <form className="inventory-row" onSubmit={async (event) => { event.preventDefault(); await onSave(draft); }}>
     <div className="inventory-row-main">
       <div>
-        <strong>{product.name}</strong>
-        <small>{product.category}</small>
+        <label>Name<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+        <label>Category<select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value as Product["category"] })}>{categories.filter((category) => category !== "All items").map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
       </div>
     </div>
     <div className="inventory-row-values">
       <label>Price<input type="number" min="0" value={draft.price} onChange={(event) => setDraft({ ...draft, price: Number(event.target.value) })} /></label>
+      <label>Description<textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
+      <label>Image URL<input type="url" value={draft.image} onChange={(event) => setDraft({ ...draft, image: event.target.value })} /></label>
+      <label>Image alt text<input value={draft.imageAlt} onChange={(event) => setDraft({ ...draft, imageAlt: event.target.value })} /></label>
+      <label>Featured<input type="checkbox" checked={draft.featured ?? false} onChange={(event) => setDraft({ ...draft, featured: event.target.checked })} /></label>
       {draft.variants.map((variant, index) => (
-        <label key={variant.id}>Stock - {variant.label} / {variant.color}<input type="number" min="0" value={variant.stock} onChange={(event) => setDraft({ ...draft, variants: draft.variants.map((currentVariant, currentIndex) => currentIndex === index ? { ...currentVariant, stock: Number(event.target.value) } : currentVariant) })} /></label>
+        <fieldset key={variant.id}>
+          <legend>Variant</legend>
+          <label>Variant ID<input value={variant.id} onChange={(event) => setDraft({ ...draft, variants: draft.variants.map((currentVariant, currentIndex) => currentIndex === index ? { ...currentVariant, id: event.target.value } : currentVariant) })} /></label>
+          <label>Age / size<input value={variant.label} onChange={(event) => setDraft({ ...draft, variants: draft.variants.map((currentVariant, currentIndex) => currentIndex === index ? { ...currentVariant, label: event.target.value } : currentVariant) })} /></label>
+          <label>Color<input value={variant.color} onChange={(event) => setDraft({ ...draft, variants: draft.variants.map((currentVariant, currentIndex) => currentIndex === index ? { ...currentVariant, color: event.target.value } : currentVariant) })} /></label>
+          <label>Stock<input type="number" min="0" value={variant.stock} onChange={(event) => setDraft({ ...draft, variants: draft.variants.map((currentVariant, currentIndex) => currentIndex === index ? { ...currentVariant, stock: Number(event.target.value) } : currentVariant) })} /></label>
+          <button className="secondary-button" type="button" onClick={() => setDraft({ ...draft, variants: draft.variants.filter((_, currentIndex) => currentIndex !== index) })}>Remove variant</button>
+        </fieldset>
       ))}
+      <button className="secondary-button" type="button" onClick={() => setDraft({ ...draft, variants: [...draft.variants, { id: `${draft.id}-variant-${draft.variants.length + 1}`, label: "", color: "", stock: 0 }] })}>Add variant</button>
     </div>
-    <button className="secondary-button" type="submit">Save</button>
+    <div className="staff-header-actions">
+      <button className="secondary-button" type="submit">Save</button>
+      <button className="secondary-button" type="button" onClick={() => void onDelete(draft)}>Delete</button>
+    </div>
   </form>;
 }

@@ -15,7 +15,7 @@ vi.mock("@/lib/supabase", () => ({
   supabaseAuth: { auth: { getUser: mocks.getUser } },
 }));
 
-import { PATCH, POST } from "./route";
+import { DELETE, PATCH, POST } from "./route";
 
 const productBody = {
   id: "summer-set",
@@ -67,8 +67,14 @@ describe("catalog mutation authorization", () => {
 
     const response = await PATCH(makeRequest("PATCH", {
       id: "summer-set",
+      name: "Summer set",
+      category: "Sets",
       price: 2500,
-      variants: [{ id: "summer-set-variant-1", stock: 4 }],
+      description: "A lightweight set.",
+      image: "https://example.com/summer-set.jpg",
+      imageAlt: "A child wearing a summer set",
+      featured: false,
+      variants: [{ id: "summer-set-variant-1", label: "2 - 3 yrs", color: "Sand", stock: 4 }],
     }));
 
     expect(response.status).toBe(403);
@@ -110,23 +116,41 @@ describe("catalog mutation authorization", () => {
   it("updates price and variant stock in one atomic database call", async () => {
     const response = await PATCH(makeRequest("PATCH", {
       id: "summer-set",
+      name: "Summer set",
+      category: "Sets",
       price: 2600,
+      description: "A lightweight set.",
+      image: "https://example.com/summer-set.jpg",
+      imageAlt: "A child wearing a summer set",
+      featured: false,
       variants: [
-        { id: "summer-set-2-3", stock: 2 },
-        { id: "summer-set-4-6", stock: 5 },
+        { id: "summer-set-2-3", label: "2 - 3 yrs", color: "Sand", stock: 2 },
+        { id: "summer-set-4-6", label: "4 - 6 yrs", color: "Sand", stock: 5 },
       ],
     }));
 
     expect(response.status).toBe(200);
     expect(mocks.rpc).toHaveBeenCalledTimes(1);
-    expect(mocks.rpc).toHaveBeenCalledWith("update_product_inventory", {
+    expect(mocks.rpc).toHaveBeenCalledWith("update_catalog_product", {
       p_id: "summer-set",
+      p_name: "Summer set",
+      p_category: "Sets",
       p_price: 2600,
+      p_description: "A lightweight set.",
+      p_image: "https://example.com/summer-set.jpg",
+      p_image_alt: "A child wearing a summer set",
+      p_featured: false,
       p_variants: [
-        { id: "summer-set-2-3", stock: 2 },
-        { id: "summer-set-4-6", stock: 5 },
+        { id: "summer-set-2-3", label: "2 - 3 yrs", color: "Sand", stock: 2 },
+        { id: "summer-set-4-6", label: "4 - 6 yrs", color: "Sand", stock: 5 },
       ],
     });
+  });
+
+  it("deletes a product atomically", async () => {
+    const response = await DELETE(makeRequest("PATCH", { id: "summer-set" }));
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("delete_catalog_product", { p_id: "summer-set" });
   });
 
   it("returns a conflict when the database rejects a duplicate product or variant ID", async () => {
@@ -143,8 +167,14 @@ describe("catalog mutation authorization", () => {
 
     const response = await PATCH(makeRequest("PATCH", {
       id: "summer-set",
+      name: "Summer set",
+      category: "Sets",
       price: 2500,
-      variants: [{ id: "other-products-variant", stock: 4 }],
+      description: "A lightweight set.",
+      image: "https://example.com/summer-set.jpg",
+      imageAlt: "A child wearing a summer set",
+      featured: false,
+      variants: [{ id: "other-products-variant", label: "2 - 3 yrs", color: "Sand", stock: 4 }],
     }));
 
     expect(response.status).toBe(400);

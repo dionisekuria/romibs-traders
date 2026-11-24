@@ -26,6 +26,18 @@ values ('<AUTH_USER_UUID>', 'admin', true);
 
 Use the `staff` role for inventory operators and `admin` for administrators; both roles currently have the same catalog permissions. Deactivate access by setting `active = false`; remove a membership row to revoke it permanently. Staff can sign in at `/staff`, but the page and mutation API both require an active membership. Catalog creation and updates run through service-role-only database functions so product and variant changes are atomic.
 
+Administrators can invite and manage staff from `/staff`. Invitations are sent through Supabase Auth and memberships are stored in `staff_members`. Deactivating or removing a membership immediately revokes staff API access.
+
+The catalog supports full product and variant updates and deletion. Product-plus-variant writes run through service-role-only PostgreSQL functions, and `anon`/`authenticated` database roles have no direct catalog write privileges.
+
+### Google Sheets catalog sync
+
+Google Sheets is an optional import mechanism; staff updates remain writable in Supabase and a Sheets import replaces the catalog atomically. Configure `GOOGLE_SHEET_ID`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, and `GOOGLE_SHEET_RANGE`, then share the sheet with the service account. The default range is `Catalog!A1:L` and the headers must be exactly:
+
+`id | name | category | price | description | image | image_alt | featured | variant_id | variant_label | variant_color | variant_stock`
+
+Only administrators can run or view sync history. Duplicate IDs, malformed rows, unexpected headers, and database errors are rejected or recorded in `catalog_sync_runs`; a successful import replaces all products and variants in one transaction.
+
 Never expose or commit `SUPABASE_SERVICE_ROLE_KEY`. Public catalog reads are available to `anon` and `authenticated` users; direct client writes to catalog and staff tables are denied by grants and RLS.
 
 ## Product direction
